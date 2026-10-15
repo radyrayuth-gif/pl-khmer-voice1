@@ -105,8 +105,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Initialize Session State
-if "items" not in st.session_state:
-    st.session_state.items = []
+if "sub_items" not in st.session_state:
+    st.session_state.sub_items = []
 if "filename" not in st.session_state:
     st.session_state.filename = "subtitles.srt"
 if "master_audio_bytes" not in st.session_state:
@@ -272,15 +272,15 @@ with col_up:
         help="ទាញឯកសារ SRT ឬ Progress JSON មកដាក់ទីនេះ"
     )
 
-if uploaded_file is not None and (not st.session_state.items or st.session_state.filename != uploaded_file.name):
+if uploaded_file is not None and (not st.session_state.sub_items or st.session_state.filename != uploaded_file.name):
     st.session_state.filename = uploaded_file.name
     content_bytes = uploaded_file.read()
 
     try:
         if uploaded_file.name.endswith(".json"):
             json_data = json.loads(content_bytes.decode("utf-8", errors="ignore"))
-            st.session_state.items = json_data.get("items", [])
-            st.success(f"✅ បានផ្ទុក {len(st.session_state.items)} ជួរពី Session Progress File!")
+            st.session_state.sub_items = json_data.get("items", [])
+            st.success(f"✅ បានផ្ទុក {len(st.session_state.sub_items)} ជួរពី Session Progress File!")
         else:
             text_content = content_bytes.decode("utf-8", errors="ignore")
             parsed_subs = parse_srt_content(text_content)
@@ -307,22 +307,22 @@ if uploaded_file is not None and (not st.session_state.items or st.session_state
                     "audio_filepath": None,
                     "duration_ms": 0
                 })
-            st.session_state.items = items
+            st.session_state.sub_items = items
             st.success(f"✅ បានផ្ទុក {len(items)} ជួរដោយជោគជ័យ!")
     except Exception as e:
         st.error(f"❌ កំហុសក្នុងការអានឯកសារ: {e}")
 
 with col_info:
-    total_lines = len(st.session_state.items)
+    total_lines = len(st.session_state.sub_items)
     if total_lines > 0:
-        total_dur_ms = st.session_state.items[-1]["end_ms"]
+        total_dur_ms = st.session_state.sub_items[-1]["end_ms"]
         total_min = total_dur_ms / 60000.0
         st.metric("ចំនួនបន្ទាត់សរុប (Lines)", f"{total_lines} ជួរ")
         st.metric("រយៈពេលសរុប (Duration)", f"{total_min:.1f} នាទី")
     else:
         st.info("👈 សូម Upload ឯកសារ SRT ដើម្បីចាប់ផ្ដើម។")
 
-if st.session_state.items:
+if st.session_state.sub_items:
     st.divider()
 
     # --- STEP 2: ACTION BUTTONS (TRANSLATE & DUB) ---
@@ -336,7 +336,7 @@ if st.session_state.items:
 
     with btn_col3:
         if st.button("🗑️ Reset All", use_container_width=True):
-            st.session_state.items = []
+            st.session_state.sub_items = []
             st.session_state.master_audio_bytes = None
             st.session_state.master_audio_path = None
             st.rerun()
@@ -356,21 +356,21 @@ if st.session_state.items:
 
             # Analyze Character Genders
             prog_bar.progress(10, text="👥 [Stage 1] កំពុងវិភាគភេទតួអង្គ (Character Casting)...")
-            items_for_cast = [{"id": it["id"], "text": it["orig_text"]} for it in st.session_state.items if it["orig_text"]]
+            items_for_cast = [{"id": it["id"], "text": it["orig_text"]} for it in st.session_state.sub_items if it["orig_text"]]
             gender_map = translator.analyze_full_script_genders(items_for_cast, concurrency=4, chunk_size=80)
 
-            for it in st.session_state.items:
+            for it in st.session_state.sub_items:
                 sid = it["id"]
                 if sid in gender_map:
                     it["gender"] = gender_map[sid]
 
             # Batch Translation
             batch_size = 25
-            total_items = len(st.session_state.items)
+            total_items = len(st.session_state.sub_items)
             for i in range(0, total_items, batch_size):
-                chunk = st.session_state.items[i : i + batch_size]
+                chunk = st.session_state.sub_items[i : i + batch_size]
                 b_data = [{"id": it["id"], "text": it["orig_text"], "duration_sec": it["target_ms"] / 1000.0, "max_speech_sec": (it["target_ms"] / 1000.0) * 1.6} for it in chunk]
-                prec = [{"id": it["id"], "text": it["orig_text"]} for it in st.session_state.items[max(0, i-5):i]]
+                prec = [{"id": it["id"], "text": it["orig_text"]} for it in st.session_state.sub_items[max(0, i-5):i]]
 
                 pct = int(15 + ((i + 1) / total_items) * 80)
                 prog_bar.progress(pct, text=f"⚡ កំពុងបកប្រែជួរ {i+1} ដល់ {min(i+batch_size, total_items)}...")
@@ -390,7 +390,7 @@ if st.session_state.items:
     # --- EXECUTE TTS & MASTER AUDIO ---
     if run_tts:
         prog_bar = st.progress(0, text="🎙️ កំពុងបង្កើតសំឡេងនិយាយខ្មែរ (Edge-TTS)...")
-        total_items = len(st.session_state.items)
+        total_items = len(st.session_state.sub_items)
 
         async def run_all_tts():
             sem = asyncio.Semaphore(10)
@@ -419,14 +419,14 @@ if st.session_state.items:
                     pct = int((completed / total_items) * 85)
                     prog_bar.progress(pct, text=f"🎙️ បានបង្កើតសំឡេង {completed}/{total_items} ជួរ ({pct}%)...")
 
-            tasks = [process_item(it) for it in st.session_state.items]
+            tasks = [process_item(it) for it in st.session_state.sub_items]
             await asyncio.gather(*tasks)
 
         asyncio.run(run_all_tts())
 
         # Compile Master MP3
         prog_bar.progress(90, text="🎵 កំពុងផ្គុំ Master Audio MP3...")
-        out_master = compile_master_audio(st.session_state.items, st.session_state.filename, bitrate=mp3_bitrate)
+        out_master = compile_master_audio(st.session_state.sub_items, st.session_state.filename, bitrate=mp3_bitrate)
 
         if out_master and os.path.exists(out_master):
             st.session_state.master_audio_path = out_master
@@ -458,7 +458,7 @@ if st.session_state.items:
         with col_dl2:
             # Generate SRT Content
             sub_objs = []
-            for it in st.session_state.items:
+            for it in st.session_state.sub_items:
                 txt = (it.get("khmer_text") or it.get("orig_text") or "").strip()
                 tag_parts = [f"មនុស្ស{it.get('gender', 'ប្រុស')}"]
                 if it.get("echo") == "Yes":
@@ -481,7 +481,7 @@ if st.session_state.items:
 
         with col_dl3:
             # Export Progress JSON
-            progress_payload = json.dumps({"filename": st.session_state.filename, "items": st.session_state.items}, ensure_ascii=False, indent=2)
+            progress_payload = json.dumps({"filename": st.session_state.filename, "items": st.session_state.sub_items}, ensure_ascii=False, indent=2)
             st.download_button(
                 "💾 Save Progress (.json)",
                 data=progress_payload.encode("utf-8"),
@@ -497,7 +497,7 @@ if st.session_state.items:
     st.caption("💡 អ្នកអាចចុចកែសម្រួលអត្ថបទភាសាខ្មែរ (Khmer Text) ឬប្ដូរភេទ (Gender) បានដោយផ្ទាល់លើតារាងខាងក្រោម៖")
 
     df_data = []
-    for it in st.session_state.items:
+    for it in st.session_state.sub_items:
         time_str = f"{it['start_time']} ➔ {it['end_time']}"
         dur_s = f"{(it['target_ms'] / 1000.0):.1f}s"
         df_data.append({
@@ -534,8 +534,8 @@ if st.session_state.items:
 
     # Sync table edits back to session state items
     for idx, row in edited_df.iterrows():
-        if idx < len(st.session_state.items):
-            st.session_state.items[idx]["khmer_text"] = row["អត្ថបទខ្មែរ (Khmer Text)"]
-            st.session_state.items[idx]["gender"] = row["ភេទ (Gender)"]
-            st.session_state.items[idx]["voice"] = row["សំឡេង (Voice)"]
-            st.session_state.items[idx]["echo"] = row["Echo"]
+        if idx < len(st.session_state.sub_items):
+            st.session_state.sub_items[idx]["khmer_text"] = row["អត្ថបទខ្មែរ (Khmer Text)"]
+            st.session_state.sub_items[idx]["gender"] = row["ភេទ (Gender)"]
+            st.session_state.sub_items[idx]["voice"] = row["សំឡេង (Voice)"]
+            st.session_state.sub_items[idx]["echo"] = row["Echo"]
